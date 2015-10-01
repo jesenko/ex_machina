@@ -2,11 +2,9 @@ defmodule ExMachina.EctoTest do
   use ExUnit.Case, async: true
 
   defmodule TestRepo do
-    def insert!(model) do
-      # simulate saving of model by adding id
-      model = %{model | id: 1}
-      send self, {:created, model}
-      model
+    def insert!(changeset) do
+      send self, {:created, changeset}
+      changeset |> Ecto.Changeset.apply_changes |> Map.put(:id, 1)
     end
   end
 
@@ -112,11 +110,17 @@ defmodule ExMachina.EctoTest do
     end
   end
 
-  test "save_record/1 passes the model to @repo.insert!" do
+  test "save_record/1 converts data to changeset and passes it to @repo.insert! " do
     model = MyApp.EctoFactories.save_record(%MyApp.User{name: "John"})
 
-    assert_received {:created, %{name: "John"}}
+    assert_received {:created, %{changes: %{name: "John"}}}
     assert model == %MyApp.User{id: 1, name: "John"}
+  end
+
+  test "save_record/1 raises unless Ecto.Model is passed" do
+    assert_raise ArgumentError, ~r"not Ecto model", fn ->
+      MyApp.EctoFactories.save_record(%{foo: "bar"})
+    end
   end
 
   test "assoc/3 returns the passed in key if it exists" do
@@ -132,9 +136,10 @@ defmodule ExMachina.EctoTest do
 
     user = ExMachina.Ecto.assoc(MyApp.EctoFactories, attrs, :user)
 
-    newly_created_user = %MyApp.User{id: 1, name: "John Doe", admin: false}
-    assert user == newly_created_user
-    assert_received {:created, ^newly_created_user}
+    vals = %{name: "John Doe", admin: false}
+    created_user = struct(MyApp.User, vals) |> Map.put(:id, 1)
+    assert user == created_user
+    assert_received {:created, %{changes: ^vals}}
   end
 
   test "assoc/3 can specify a factory for the association" do
@@ -142,9 +147,10 @@ defmodule ExMachina.EctoTest do
 
     account = ExMachina.Ecto.assoc(MyApp.EctoFactories, attrs, :account, factory: :user)
 
-    newly_created_account = %MyApp.User{id: 1, name: "John Doe", admin: false}
+    vals = %{admin: false, name: "John Doe"}
+    newly_created_account = struct(MyApp.User, vals) |> Map.put(:id, 1)
     assert account == newly_created_account
-    assert_received {:created, ^newly_created_account}
+    assert_received {:created, %{changes: ^vals}}
   end
 
   test "can use assoc/3 in a factory to override associations" do
